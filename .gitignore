@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Logs (runtime generated, do not commit)
+logs/
+*.log
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config with sensitive connection info (use schema_check.json.example as template)
+schema_check.json
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/

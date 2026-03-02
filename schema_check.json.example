@@ -1,0 +1,20 @@
+{
+  "job_config": {
+    "start_ts": 1772251200000,
+    "end_ts":   1772337600000,
+    "time_field": "B",
+    "prod_uri": "mongodb://<PROD_HOST>:27017",
+    "dr_uri":   "mongodb://<DR_HOST>:27017",
+    "prod_db":  "PROD_DB",
+    "dr_db":    "DR_DB",
+    "coll_prefix": "encColl"
+  },
+  "data_schema": {
+    "required_fields": ["B", "flowStart", "shk"],
+    "type_rules": {
+      "B": "int",
+      "flowStart": "str",
+      "shk": "bytes"
+    }
+  }
+}
