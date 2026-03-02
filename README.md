@@ -32,7 +32,8 @@ dr2pro/
 ├── phase3_load_to_staging.py
 ├── phase4_final_merge_restore.py
 ├── schema_check.json                # 任務設定（連線資訊、時間範圍、Schema）
-├── generate_test_data.py            # 產生測試資料（驗證用）
+├── generate_test_data.py            # 產生測試資料（快速版）
+├── generate_test_data_pro.py        # 產生測試資料（精準版，含 Logger）
 ├── check_data.py                    # 查詢各集合筆數與欄位型別
 └── logs/                            # 執行日誌（自動建立，不納入版控）
 ```
@@ -113,9 +114,23 @@ python phase4_final_merge_restore.py
 
 ### 測試與驗證
 
+提供兩支測試資料產生器，均需 Production 與 DR 均可連線：
+
+| 腳本 | 說明 |
+|------|------|
+| `generate_test_data.py` | 快速版，用 `print` 輸出，適合臨時驗證 |
+| `generate_test_data_pro.py` | 精準版，建議使用 |
+
+**`generate_test_data_pro.py` 改善項目：**
+- 使用 Logger，輸出格式一致
+- 啟動前驗證 `schema_check.json` 是否存在
+- 每個集合取「全局時間區間 ∩ 該小時邊界」的交集，時間戳分佈更精確
+- Production 資料標記 `status: "CORRUPTED"`，DR 資料標記 `status: "VALID_DR_DATA"`，便於修復後比對
+- 額外建立 `time_field` 索引，更貼近正式環境
+
 ```bash
-# 產生測試資料（需 Production 與 DR 均可連線）
-python generate_test_data.py
+# 產生測試資料（精準版）
+python generate_test_data_pro.py
 
 # 查詢各集合狀態
 python check_data.py
