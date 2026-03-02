@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>IPDR DR Recovery — Test Report 2026-03-02</title>
+<style>
+  :root {
+    --pass: #16a34a; --pass-bg: #f0fdf4; --pass-border: #bbf7d0;
+    --fail: #dc2626; --fail-bg: #fef2f2; --fail-border: #fecaca;
+    --gray: #6b7280; --border: #e5e7eb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f9fafb; color: #111827; font-size: 14px; }
+  .wrap { max-width: 960px; margin: 32px auto; padding: 0 16px; }
+
+  /* Header */
+  .header { background: #1e293b; color: #f8fafc; border-radius: 8px; padding: 28px 32px; margin-bottom: 24px; }
+  .header h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .header .meta { font-size: 12px; color: #94a3b8; display: flex; gap: 24px; flex-wrap: wrap; margin-top: 10px; }
+
+  /* Summary cards */
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; }
+  .card .label { font-size: 11px; color: var(--gray); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  .card .value { font-size: 28px; font-weight: 700; }
+  .card.pass .value { color: var(--pass); }
+  .card.fail .value { color: var(--fail); }
+
+  /* Section */
+  .section { background: #fff; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 20px; overflow: hidden; }
+  .section-head { padding: 14px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+  .section-head h2 { font-size: 15px; font-weight: 600; }
+  .section-head .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; }
+  .badge.pass { background: var(--pass-bg); color: var(--pass); border: 1px solid var(--pass-border); }
+  .badge.fail { background: var(--fail-bg); color: var(--fail); border: 1px solid var(--fail-border); }
+  .section-meta { font-size: 12px; color: var(--gray); margin-left: auto; display: flex; gap: 20px; }
+
+  /* Phase strip */
+  .phases { display: flex; gap: 6px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: #f8fafc; }
+  .phase-chip { font-size: 11px; padding: 3px 10px; border-radius: 4px; font-weight: 600; }
+  .phase-chip.ok  { background: var(--pass-bg); color: var(--pass); border: 1px solid var(--pass-border); }
+  .phase-chip.ng  { background: var(--fail-bg); color: var(--fail); border: 1px solid var(--fail-border); }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #f1f5f9; font-size: 11px; font-weight: 600; color: var(--gray); text-align: right;
+       padding: 8px 14px; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing:.04em; }
+  th:first-child { text-align: left; }
+  td { padding: 8px 14px; border-bottom: 1px solid var(--border); text-align: right; font-family: monospace; font-size: 13px; }
+  td:first-child { text-align: left; color: #374151; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f8fafc; }
+  .ok-cell  { color: var(--pass); font-weight: 700; }
+  .fail-cell{ color: var(--fail); font-weight: 700; }
+  .zero { color: #9ca3af; }
+
+  /* Env */
+  .env-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  .env-row { display: flex; padding: 9px 20px; border-bottom: 1px solid var(--border); gap: 12px; }
+  .env-row:last-child { border-bottom: none; }
+  .env-key { font-size: 12px; color: var(--gray); width: 160px; flex-shrink: 0; }
+  .env-val { font-size: 12px; font-family: monospace; color: #1e293b; }
+  .env-section { border-bottom: 1px solid var(--border); }
+
+  /* Footer */
+  .footer { text-align: center; color: var(--gray); font-size: 11px; margin-top: 32px; padding-bottom: 32px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>IPDR MongoDB DR Recovery — Test Report</h1>
+    <p style="color:#94a3b8;font-size:13px;margin-top:4px;">端到端情境驗證：時間邊界 × 集合切割正確性</p>
+    <div class="meta">
+      <span>執行日期：2026-03-02</span>
+      <span>執行時間：16:47:22</span>
+      <span>總耗時：20.49 s</span>
+      <span>測試腳本：validate_scenarios.py</span>
+      <span>Python：3.9　pymongo：4.x</span>
+    </div>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="label">Total Scenarios</div>
+      <div class="value" style="color:#1e293b">4</div>
+    </div>
+    <div class="card pass">
+      <div class="label">Passed</div>
+      <div class="value">4</div>
+    </div>
+    <div class="card fail">
+      <div class="label">Failed</div>
+      <div class="value" style="color:#9ca3af">0</div>
+    </div>
+    <div class="card">
+      <div class="label">Total Collections</div>
+      <div class="value" style="color:#1e293b">18</div>
+    </div>
+  </div>
+
+  <!-- Environment -->
+  <div class="section" style="margin-bottom:24px;">
+    <div class="section-head"><h2>測試環境</h2></div>
+    <div class="env-grid">
+      <div class="env-section">
+        <div class="env-row"><span class="env-key">Production URI</span><span class="env-val">mongodb://192.168.101.142:27017</span></div>
+        <div class="env-row"><span class="env-key">Production DB</span><span class="env-val">PROD_DB</span></div>
+        <div class="env-row"><span class="env-key">Collection prefix</span><span class="env-val">encColl</span></div>
+        <div class="env-row"><span class="env-key">Shard key</span><span class="env-val">_id</span></div>
+      </div>
+      <div>
+        <div class="env-row"><span class="env-key">DR URI</span><span class="env-val">mongodb://192.168.101.132:27017</span></div>
+        <div class="env-row"><span class="env-key">DR DB</span><span class="env-val">DR_DB</span></div>
+        <div class="env-row"><span class="env-key">Time field</span><span class="env-val">B (int, ms epoch)</span></div>
+        <div class="env-row"><span class="env-key">Docs/collection</span><span class="env-val">DR=100, Prod=50(衝突)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scenario 1 -->
+  <div class="section">
+    <div class="section-head">
+      <h2>Scenario 1 — 同日跨 collection</h2>
+      <span class="badge pass">PASS</span>
+      <div class="section-meta">
+        <span>區間：2026-03-10 02:00 → 06:00</span>
+        <span>集合數：4 / 4</span>
+        <span>耗時：4.69 s</span>
+      </div>
+    </div>
+    <div class="phases">
+      <span class="phase-chip ok">Phase 1 備份&amp;清空 ✓</span>
+      <span class="phase-chip ok">Phase 2 DR 審計 ✓</span>
+      <span class="phase-chip ok">Phase 3 搬運暫存 ✓</span>
+      <span class="phase-chip ok">Phase 4 合併回填 ✓</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>集合名稱</th><th>Prod 筆數</th><th>CORRUPTED</th><th>VALID_DR</th><th>備份建立</th><th>Stage 已清</th><th>結果</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>2026031002_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031003_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031004_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031005_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Scenario 2 -->
+  <div class="section">
+    <div class="section-head">
+      <h2>Scenario 2 — 跨日</h2>
+      <span class="badge pass">PASS</span>
+      <div class="section-meta">
+        <span>區間：2026-03-10 20:00 → 2026-03-11 04:00</span>
+        <span>集合數：8 / 8</span>
+        <span>耗時：8.85 s</span>
+      </div>
+    </div>
+    <div class="phases">
+      <span class="phase-chip ok">Phase 1 備份&amp;清空 ✓</span>
+      <span class="phase-chip ok">Phase 2 DR 審計 ✓</span>
+      <span class="phase-chip ok">Phase 3 搬運暫存 ✓</span>
+      <span class="phase-chip ok">Phase 4 合併回填 ✓</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>集合名稱</th><th>Prod 筆數</th><th>CORRUPTED</th><th>VALID_DR</th><th>備份建立</th><th>Stage 已清</th><th>結果</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>2026031020_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031021_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031022_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031023_encColl <span style="font-size:10px;color:#6b7280;">(日期邊界)</span></td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031100_encColl <span style="font-size:10px;color:#6b7280;">(日期邊界)</span></td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031101_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031102_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031103_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Scenario 3 -->
+  <div class="section">
+    <div class="section-head">
+      <h2>Scenario 3 — 跨 00:00 午夜邊界</h2>
+      <span class="badge pass">PASS</span>
+      <div class="section-meta">
+        <span>區間：2026-03-10 23:00 → 2026-03-11 01:00</span>
+        <span>集合數：2 / 2</span>
+        <span>耗時：2.26 s</span>
+      </div>
+    </div>
+    <div class="phases">
+      <span class="phase-chip ok">Phase 1 備份&amp;清空 ✓</span>
+      <span class="phase-chip ok">Phase 2 DR 審計 ✓</span>
+      <span class="phase-chip ok">Phase 3 搬運暫存 ✓</span>
+      <span class="phase-chip ok">Phase 4 合併回填 ✓</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>集合名稱</th><th>Prod 筆數</th><th>CORRUPTED</th><th>VALID_DR</th><th>備份建立</th><th>Stage 已清</th><th>結果</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>2026031023_encColl <span style="font-size:10px;color:#6b7280;">(23:xx → 00:xx)</span></td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026031100_encColl <span style="font-size:10px;color:#6b7280;">(00:xx 跨日後)</span></td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Scenario 4 -->
+  <div class="section">
+    <div class="section-head">
+      <h2>Scenario 4 — 跨年</h2>
+      <span class="badge pass">PASS</span>
+      <div class="section-meta">
+        <span>區間：2025-12-31 22:00 → 2026-01-01 02:00</span>
+        <span>集合數：4 / 4</span>
+        <span>耗時：4.69 s</span>
+      </div>
+    </div>
+    <div class="phases">
+      <span class="phase-chip ok">Phase 1 備份&amp;清空 ✓</span>
+      <span class="phase-chip ok">Phase 2 DR 審計 ✓</span>
+      <span class="phase-chip ok">Phase 3 搬運暫存 ✓</span>
+      <span class="phase-chip ok">Phase 4 合併回填 ✓</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>集合名稱</th><th>Prod 筆數</th><th>CORRUPTED</th><th>VALID_DR</th><th>備份建立</th><th>Stage 已清</th><th>結果</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>2025123122_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2025123123_encColl <span style="font-size:10px;color:#6b7280;">(2025 最後一小時)</span></td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026010100_encColl <span style="font-size:10px;color:#6b7280;">(2026 第一小時)</span></td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+        <tr><td>2026010101_encColl</td><td>100</td><td class="zero">0</td><td>100</td><td class="ok-cell">Y</td><td class="ok-cell">Y</td><td class="ok-cell">PASS</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Observations -->
+  <div class="section">
+    <div class="section-head"><h2>觀察與備註</h2></div>
+    <div style="padding:16px 20px;line-height:1.8;color:#374151;font-size:13px;">
+      <p style="margin-bottom:10px;">
+        <strong>邊界小時跳過行為（正常）：</strong>
+        <code>generate_test_data_pro.py</code> 以 <code>&lt;=</code> 條件多嘗試一個整點邊界（如 end_ts=06:00 時會嘗試 <code>2026031006</code>），
+        但因各小時的 <em>actual_start ≥ actual_end</em> 交集判斷，該集合會印出 <code>WARNING: 跳過</code> 並略過，
+        與 <code>utils.get_target_collections()</code> 的 <code>&lt;</code> 條件一致，屬預期行為。
+      </p>
+      <p style="margin-bottom:10px;">
+        <strong>集合命名格式：</strong>以 <code>YYYYMMDDHH_{prefix}</code> 格式依小時切割，
+        跨日（<code>031023 → 031100</code>）與跨年（<code>2025123123 → 2026010100</code>）均正確切換，無遺漏集合。
+      </p>
+      <p>
+        <strong>資料完整性：</strong>所有情境完成後 Production 每集合均為 100 筆 DR 來源資料，
+        無 CORRUPTED 殘留，Stage 集合已清除，備份集合（<code>*_bak_HHMM</code>）均已建立。
+      </p>
+    </div>
+  </div>
+
+  <div class="footer">
+    IPDR MongoDB DR Recovery Tool — Test Report generated 2026-03-02 16:47 &nbsp;|&nbsp; 4 scenarios &nbsp;·&nbsp; 18 collections &nbsp;·&nbsp; 1800 docs verified
+  </div>
+
+</div>
+</body>
+</html>
