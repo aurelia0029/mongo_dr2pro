@@ -1,6 +1,6 @@
 # IPDR MongoDB DR Recovery Tool
 
-針對 MongoDB 分片叢集的 IPDR 資料災難復原工具，透過四階段流程將 DR Site 資料安全地回填至 Production 環境。
+針對 MongoDB 分片叢集的 IPDR 資料災難復原工具，透過三階段流程將 DR Site 資料還原至 Production 環境。
 
 ## 架構概覽
 
@@ -10,16 +10,15 @@ DR Site (來源) ─────────────────────
        └─ {YYYYMMDDHH}_{prefix}                  └─ {YYYYMMDDHH}_{prefix}
 ```
 
-資料流向：`DR Site → (審計) → Staging → (合併) → Production`
+資料流向：`DR Site → (審計) → Production`
 
-## 四階段流程
+## 三階段流程
 
 | 階段 | 腳本 | 說明 |
 |------|------|------|
-| Phase 1 | `phase1_evacuation.py` | 備份並清空 Production 指定時間區間的資料 |
+| Phase 1 | `phase1_evacuation.py` | 備份 Production 指定時間區間的資料至 `*_bak_HHMM`（不刪除原資料） |
 | Phase 2 | `phase2_data_integrity_audit.py` | 審計 DR Site 資料完整性（抽樣驗證） |
-| Phase 3 | `phase3_load_to_staging.py` | 將 DR 資料搬運至 Production 暫存集合並建立索引 |
-| Phase 4 | `phase4_final_merge_restore.py` | 使用 `$merge` 原子合併暫存集合回填正式集合 |
+| Phase 3 | `phase4_final_merge_restore.py` | `mongodump` DR 資料並 `mongorestore --drop` 直接覆蓋 Production 集合 |
 
 ## 目錄結構
 
@@ -29,7 +28,6 @@ dr2pro/
 ├── utils.py                         # 共用工具（Logger、Config、集合名稱計算）
 ├── phase1_evacuation.py
 ├── phase2_data_integrity_audit.py
-├── phase3_load_to_staging.py
 ├── phase4_final_merge_restore.py
 ├── schema_check.json                # 任務設定（連線資訊、時間範圍、Schema）
 ├── generate_test_data.py            # 產生測試資料（快速版）
@@ -42,6 +40,7 @@ dr2pro/
 
 - Python 3.9+
 - pymongo
+- MongoDB Database Tools（`mongodump` / `mongorestore`）
 - 可連線至 Production 與 DR Site 的 MongoDB 主機
 
 安裝依賴：
@@ -50,6 +49,8 @@ dr2pro/
 python -m venv .venv
 source .venv/bin/activate
 pip install pymongo
+
+brew install mongodb-database-tools  # macOS
 ```
 
 ## 設定
@@ -95,10 +96,9 @@ python runner.py
 
 ```
 === IPDR 修復流程 (Shard Key: _id) ===
- [1] 備份並清空主表
+ [1] 備份 Production 區間資料
  [2] 審計 DR 資料
- [3] 搬運至暫存並建索引
- [4] 最後合併回填
+ [3] 還原 DR 資料至 Production
 
 請選擇步驟 (Q退出):
 ```
@@ -108,7 +108,6 @@ python runner.py
 ```bash
 python phase1_evacuation.py
 python phase2_data_integrity_audit.py
-python phase3_load_to_staging.py
 python phase4_final_merge_restore.py
 ```
 
@@ -134,6 +133,9 @@ python generate_test_data_pro.py
 
 # 查詢各集合狀態
 python check_data.py
+
+# 端對端情境驗證
+python validate_scenarios.py
 ```
 
 ## 日誌
@@ -142,6 +144,6 @@ python check_data.py
 
 ## 注意事項
 
-- **Phase 1 會刪除 Production 資料**，請確認備份集合（`*_bak_HHMM`）已正確建立後再繼續
-- **Phase 4** 使用 `$merge` 的 `whenMatched: keepExisting` 策略，既有資料不會被覆蓋
+- **Phase 3 會直接 drop Production 集合**，`mongorestore --drop` 會覆蓋整個集合而非僅時間區間內的資料，Phase 1 的備份（`*_bak_HHMM`）是唯一的安全網
+- **Phase 2 不會自動阻擋流程**，審計通過率偏低時需人工判斷是否繼續執行 Phase 3
 - `schema_check.json` 含有連線資訊，**請勿提交至版控**，使用 `.gitignore` 排除

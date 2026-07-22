@@ -10,11 +10,33 @@
     "coll_prefix": "encColl"
   },
   "data_schema": {
-    "required_fields": ["B", "flowStart", "shk"],
+    "required_fields": ["A", "B", "G", "M", "J", "N", "H1", "H2", "K1", "K2", "P", "Q", "R", "S", "O", "W", "BV", "T", "C", "D", "E", "V", "U", "F", "AE"],
     "type_rules": {
-      "B": "int",
-      "flowStart": "str",
-      "shk": "bytes"
+      "A":  "int",
+      "B":  "int",
+      "G":  "int",
+      "M":  "str",
+      "J":  "int",
+      "N":  "str",
+      "H1": "int",
+      "H2": "int",
+      "K1": "int",
+      "K2": "int",
+      "P":  "int",
+      "Q":  "int",
+      "R":  "int",
+      "S":  "int",
+      "O":  "str",
+      "W":  "str",
+      "BV": "str",
+      "T":  "str",
+      "C":  "str",
+      "D":  "str",
+      "E":  "str",
+      "V":  "str",
+      "U":  "str",
+      "F":  "str",
+      "AE": "int"
     }
   }
 }
