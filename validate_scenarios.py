@@ -12,8 +12,7 @@ import json, datetime, os, sys
 from pymongo import MongoClient
 
 import generate_test_data_pro
-import phase1_evacuation, phase2_data_integrity_audit
-import phase4_final_merge_restore
+import phase1_evacuation, phase2_data_integrity_audit, phase3_restore
 
 CONFIG_PATH = "schema_check.json"
 GREEN = "\033[92m"
@@ -152,7 +151,7 @@ def run_scenario(base_cfg, scenario):
     for label, func in [
         ("Phase1 備份 Prod",   phase1_evacuation.run_evacuation),
         ("Phase2 審計 DR",     phase2_data_integrity_audit.run_audit),
-        ("Phase3 還原至 Prod", phase4_final_merge_restore.run_final_merge),
+        ("Phase3 還原至 Prod", phase3_restore.run_restore),
     ]:
         print(f"\n[{label}] 執行中...")
         phase_results[label] = func()

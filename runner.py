@@ -1,12 +1,11 @@
 import sys
-import phase1_evacuation, phase2_data_integrity_audit
-import phase4_final_merge_restore
+import phase1_evacuation, phase2_data_integrity_audit, phase3_restore
 
 def main():
     steps = {
         "1": ("備份 Production 區間資料", phase1_evacuation.run_evacuation),
         "2": ("審計 DR 資料",             phase2_data_integrity_audit.run_audit),
-        "3": ("還原 DR 資料至 Production", phase4_final_merge_restore.run_final_merge),
+        "3": ("還原 DR 資料至 Production", phase3_restore.run_restore),
     }
 
     while True:

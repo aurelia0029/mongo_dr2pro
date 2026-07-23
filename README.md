@@ -16,9 +16,9 @@ DR Site (來源) ─────────────────────
 
 | 階段 | 腳本 | 說明 |
 |------|------|------|
-| Phase 1 | `phase1_evacuation.py` | 備份 Production 指定時間區間的資料至 `*_bak_HHMM`（不刪除原資料） |
+| Phase 1 | `phase1_evacuation.py` | `mongodump` 備份 Production 指定時間區間的資料至 `backups/bak_{YYYYMMDD_HHMM}/` |
 | Phase 2 | `phase2_data_integrity_audit.py` | 審計 DR Site 資料完整性（抽樣驗證） |
-| Phase 3 | `phase4_final_merge_restore.py` | `mongodump` DR 資料並 `mongorestore --drop` 直接覆蓋 Production 集合 |
+| Phase 3 | `phase3_restore.py` | `mongodump` DR 資料並 `mongorestore --drop` 直接覆蓋 Production 集合 |
 
 ## 目錄結構
 
@@ -28,7 +28,7 @@ dr2pro/
 ├── utils.py                         # 共用工具（Logger、Config、集合名稱計算）
 ├── phase1_evacuation.py
 ├── phase2_data_integrity_audit.py
-├── phase4_final_merge_restore.py
+├── phase3_restore.py
 ├── schema_check.json                # 任務設定（連線資訊、時間範圍、Schema）
 ├── generate_test_data.py            # 產生測試資料（快速版）
 ├── generate_test_data_pro.py        # 產生測試資料（精準版，含 Logger）
@@ -108,7 +108,7 @@ python runner.py
 ```bash
 python phase1_evacuation.py
 python phase2_data_integrity_audit.py
-python phase4_final_merge_restore.py
+python phase3_restore.py
 ```
 
 ### 測試與驗證
@@ -144,6 +144,6 @@ python validate_scenarios.py
 
 ## 注意事項
 
-- **Phase 3 會直接 drop Production 集合**，`mongorestore --drop` 會覆蓋整個集合而非僅時間區間內的資料，Phase 1 的備份（`*_bak_HHMM`）是唯一的安全網
+- **Phase 3 會直接 drop Production 集合**，`mongorestore --drop` 會覆蓋整個集合而非僅時間區間內的資料，Phase 1 備份的 BSON 檔案（`backups/bak_{YYYYMMDD_HHMM}/`）是唯一的安全網
 - **Phase 2 不會自動阻擋流程**，審計通過率偏低時需人工判斷是否繼續執行 Phase 3
 - `schema_check.json` 含有連線資訊，**請勿提交至版控**，使用 `.gitignore` 排除
