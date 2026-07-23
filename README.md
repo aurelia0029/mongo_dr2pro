@@ -33,6 +33,8 @@ dr2pro/
 ├── generate_test_data.py            # 產生測試資料（快速版）
 ├── generate_test_data_pro.py        # 產生測試資料（精準版，含 Logger）
 ├── check_data.py                    # 查詢各集合筆數與欄位型別
+├── validate_scenarios.py            # 端對端情境驗證（四種時間邊界）
+├── backups/                         # mongodump 備份（自動建立，不納入版控）
 └── logs/                            # 執行日誌（自動建立，不納入版控）
 ```
 
@@ -66,21 +68,23 @@ cp schema_check.json.example schema_check.json
 ```json
 {
   "job_config": {
-    "start_ts": 1772251200000,      // 起始時間戳（毫秒 epoch）
-    "end_ts":   1772337600000,      // 結束時間戳（毫秒 epoch）
+    "start_ts": "2026071808",       // 起始小時（YYYYMMDDHH，包含）
+    "end_ts":   "2026071810",       // 結束小時（YYYYMMDDHH，包含）
     "time_field": "B",              // MongoDB 文件中的時間欄位名稱
     "prod_uri": "mongodb://<PROD_HOST>:27017",
     "dr_uri":   "mongodb://<DR_HOST>:27017",
     "prod_db":  "PROD_DB",
     "dr_db":    "DR_DB",
-    "coll_prefix": "encColl"        // 集合名稱後綴，格式：{YYYYMMDDHH}_{coll_prefix}
+    "coll_prefix": "encColl"        // 集合名稱前綴，格式：{YYYYMMDDHH}_{coll_prefix}*
   },
   "data_schema": {
-    "required_fields": ["B", "flowStart", "shk"],
+    "required_fields": ["A", "B", "G", "M", "J", "N", "H1", "H2", "K1", "K2", "P", "Q", "R", "S", "O", "W", "BV", "T", "C", "D", "E", "V", "U", "F", "AE"],
     "type_rules": {
-      "B": "int",
-      "flowStart": "str",
-      "shk": "bytes"
+      "A": "int", "B": "int", "G": "int", "J": "int",
+      "H1": "int", "H2": "int", "K1": "int", "K2": "int",
+      "P": "int", "Q": "int", "R": "int", "S": "int", "AE": "int",
+      "M": "str", "N": "str", "O": "str", "W": "str", "BV": "str",
+      "T": "str", "C": "str", "D": "str", "E": "str", "V": "str", "U": "str", "F": "str"
     }
   }
 }
@@ -123,7 +127,7 @@ python phase3_restore.py
 **`generate_test_data_pro.py` 改善項目：**
 - 使用 Logger，輸出格式一致
 - 啟動前驗證 `schema_check.json` 是否存在
-- 每個集合取「全局時間區間 ∩ 該小時邊界」的交集，時間戳分佈更精確
+- 根據 `data_schema` 動態產生欄位，不硬寫欄位名稱
 - Production 資料標記 `status: "CORRUPTED"`，DR 資料標記 `status: "VALID_DR_DATA"`，便於修復後比對
 - 額外建立 `time_field` 索引，更貼近正式環境
 

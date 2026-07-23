@@ -1,7 +1,7 @@
 {
   "job_config": {
-    "start_ts": 1772251200000,
-    "end_ts":   1772337600000,
+    "start_ts": "2026071808",
+    "end_ts":   "2026071810",
     "time_field": "B",
     "prod_uri": "mongodb://<PROD_HOST>:27017",
     "dr_uri":   "mongodb://<DR_HOST>:27017",

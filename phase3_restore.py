@@ -1,13 +1,16 @@
-import json, shutil, subprocess, tempfile
+import shutil, subprocess, tempfile
+from pymongo import MongoClient
 import utils
 
 def run_restore():
     logger = utils.setup_logger("Phase3")
     try:
         cfg = utils.load_config()["job_config"]
-        query_json = json.dumps({cfg["time_field"]: {"$gte": cfg["start_ts"], "$lt": cfg["end_ts"]}})
+        d_db = MongoClient(cfg["dr_uri"])[cfg["dr_db"]]
+        colls = utils.get_matching_collections(d_db, utils.get_hour_prefixes(cfg))
 
-        for coll_name in utils.get_target_collections(cfg):
+        logger.info(f"還原區間: {cfg['start_ts']} - {cfg['end_ts']}，共 {len(colls)} 個集合")
+        for coll_name in colls:
             dump_dir = tempfile.mkdtemp(prefix="dr_restore_")
             try:
                 r = subprocess.run([
@@ -15,7 +18,6 @@ def run_restore():
                     f"--uri={cfg['dr_uri']}",
                     f"--db={cfg['dr_db']}",
                     f"--collection={coll_name}",
-                    f"--query={query_json}",
                     f"--out={dump_dir}",
                 ], capture_output=True, text=True)
                 if r.returncode != 0:

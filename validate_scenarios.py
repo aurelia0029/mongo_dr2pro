@@ -8,27 +8,25 @@ validate_scenarios.py
   3. 跨 00:00
   4. 跨年
 """
-import json, datetime, os, sys
+import json, os, sys
 from pymongo import MongoClient
 
 import generate_test_data_pro
 import phase1_evacuation, phase2_data_integrity_audit, phase3_restore
+import utils
 
 CONFIG_PATH = "schema_check.json"
 GREEN = "\033[92m"
 RED   = "\033[91m"
 RESET = "\033[0m"
 
-def ts_ms(year, month, day, hour):
-    return int(datetime.datetime(year, month, day, hour).timestamp() * 1000)
-
 SCENARIOS = [
     {
         "id": 1,
         "name": "同日跨 collection",
-        "desc": "2026-03-10 02:00 → 06:00",
-        "start_ts":      ts_ms(2026, 3, 10, 2),
-        "end_ts":        ts_ms(2026, 3, 10, 6),
+        "desc": "2026-03-10 02:00 → 05:00",
+        "start_ts": "2026031002",
+        "end_ts":   "2026031005",
         "expected_colls": 4,
         "expected_colls_list": [
             "2026031002_encColl", "2026031003_encColl",
@@ -38,9 +36,9 @@ SCENARIOS = [
     {
         "id": 2,
         "name": "跨日",
-        "desc": "2026-03-10 20:00 → 2026-03-11 04:00",
-        "start_ts":      ts_ms(2026, 3, 10, 20),
-        "end_ts":        ts_ms(2026, 3, 11,  4),
+        "desc": "2026-03-10 20:00 → 2026-03-11 03:00",
+        "start_ts": "2026031020",
+        "end_ts":   "2026031103",
         "expected_colls": 8,
         "expected_colls_list": [
             "2026031020_encColl", "2026031021_encColl",
@@ -52,9 +50,9 @@ SCENARIOS = [
     {
         "id": 3,
         "name": "跨 00:00",
-        "desc": "2026-03-10 23:00 → 2026-03-11 01:00",
-        "start_ts":      ts_ms(2026, 3, 10, 23),
-        "end_ts":        ts_ms(2026, 3, 11,  1),
+        "desc": "2026-03-10 23:00 → 2026-03-11 00:00",
+        "start_ts": "2026031023",
+        "end_ts":   "2026031100",
         "expected_colls": 2,
         "expected_colls_list": [
             "2026031023_encColl",
@@ -64,9 +62,9 @@ SCENARIOS = [
     {
         "id": 4,
         "name": "跨年",
-        "desc": "2025-12-31 22:00 → 2026-01-01 02:00",
-        "start_ts":      ts_ms(2025, 12, 31, 22),
-        "end_ts":        ts_ms(2026,  1,  1,  2),
+        "desc": "2025-12-31 22:00 → 2026-01-01 01:00",
+        "start_ts": "2025123122",
+        "end_ts":   "2026010101",
         "expected_colls": 4,
         "expected_colls_list": [
             "2025123122_encColl", "2025123123_encColl",
@@ -87,23 +85,24 @@ def restore_config(base_cfg):
     with open(CONFIG_PATH, "w") as f:
         json.dump(base_cfg, f, indent=2)
 
-def get_expected_colls(job_cfg):
-    colls, curr = [], job_cfg["start_ts"]
-    while curr < job_cfg["end_ts"]:
-        dt = datetime.datetime.fromtimestamp(curr / 1000.0)
-        colls.append(dt.strftime(f"%Y%m%d%H_{job_cfg['coll_prefix']}"))
-        curr += 3600000
-    return sorted(colls)
-
 def ok_str(b):
     return f"{GREEN}OK{RESET}" if b else f"{RED}FAIL{RESET}"
+
+def _bak_exists(prod_db, coll_name):
+    bak_root = "backups"
+    if not os.path.isdir(bak_root):
+        return False
+    return any(
+        os.path.exists(os.path.join(bak_root, d, prod_db, f"{coll_name}.bson"))
+        for d in os.listdir(bak_root) if d.startswith("bak_")
+    )
 
 # ─────────────────────────────────────────────
 def verify(job_cfg, scenario):
     p_db = MongoClient(job_cfg["prod_uri"])[job_cfg["prod_db"]]
-    all_colls = p_db.list_collection_names()
+    prefixes = utils.get_hour_prefixes(job_cfg)
+    actual_colls = utils.get_matching_collections(p_db, prefixes)
 
-    actual_colls = get_expected_colls(job_cfg)
     coll_count_ok = len(actual_colls) == scenario["expected_colls"]
     coll_names_ok = actual_colls == scenario["expected_colls_list"]
 
@@ -113,18 +112,16 @@ def verify(job_cfg, scenario):
         prod_cnt    = p_db[coll].count_documents({})
         corrupt_cnt = p_db[coll].count_documents({"status": "CORRUPTED"})
         valid_cnt   = p_db[coll].count_documents({"status": "VALID_DR_DATA"})
-        stage_gone  = f"{coll}_stage" not in all_colls
-        bak_created = any(c.startswith(f"{coll}_bak_") for c in all_colls)
+        bak_created = _bak_exists(job_cfg["prod_db"], coll)
 
         row_ok = (prod_cnt == 100 and corrupt_cnt == 0
-                  and valid_cnt == 100 and stage_gone and bak_created)
+                  and valid_cnt == 100 and bak_created)
         if not row_ok:
             all_ok = False
 
         rows.append({
             "coll": coll, "prod": prod_cnt, "corrupt": corrupt_cnt,
-            "valid": valid_cnt, "bak": bak_created,
-            "stage_gone": stage_gone, "ok": row_ok,
+            "valid": valid_cnt, "bak": bak_created, "ok": row_ok,
         })
 
     return all_ok, coll_count_ok, coll_names_ok, actual_colls, rows
@@ -142,11 +139,9 @@ def run_scenario(base_cfg, scenario):
     job_cfg["start_ts"] = scenario["start_ts"]
     job_cfg["end_ts"]   = scenario["end_ts"]
 
-    # ── Setup ──────────────────────────────────────────────────────
     print("\n[Setup] 產生測試資料...")
     generate_test_data_pro.generate_test_data()
 
-    # ── Four phases ────────────────────────────────────────────────
     phase_results = {}
     for label, func in [
         ("Phase1 備份 Prod",   phase1_evacuation.run_evacuation),
@@ -158,7 +153,6 @@ def run_scenario(base_cfg, scenario):
 
     phases_ok = all(phase_results.values())
 
-    # ── Verify ─────────────────────────────────────────────────────
     all_ok, coll_count_ok, coll_names_ok, actual_colls, rows = verify(job_cfg, scenario)
 
     print(f"\n{'─'*65}")
@@ -168,14 +162,13 @@ def run_scenario(base_cfg, scenario):
         print(f"  預期: {scenario['expected_colls_list']}")
         print(f"  實際: {actual_colls}")
 
-    hdr = f"  {'集合名稱':<28} {'prod':>5} {'corrupt':>7} {'valid_dr':>8} {'bak':>4} {'stage':>6}  結果"
+    hdr = f"  {'集合名稱':<28} {'prod':>5} {'corrupt':>7} {'valid_dr':>8} {'bak':>4}  結果"
     print(f"\n{hdr}")
-    print("  " + "─" * 63)
+    print("  " + "─" * 57)
     for r in rows:
-        stage_str = "已清" if r["stage_gone"] else f"{RED}殘留!{RESET}"
-        bak_str   = "Y" if r["bak"] else f"{RED}N{RESET}"
+        bak_str = "Y" if r["bak"] else f"{RED}N{RESET}"
         print(f"  {r['coll']:<28} {r['prod']:>5} {r['corrupt']:>7} {r['valid']:>8}"
-              f"  {bak_str:>4} {stage_str:>6}  {ok_str(r['ok'])}")
+              f"  {bak_str:>4}  {ok_str(r['ok'])}")
 
     overall = phases_ok and all_ok
     verdict = f"{GREEN}PASS{RESET}" if overall else f"{RED}FAIL{RESET}"

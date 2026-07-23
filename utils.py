@@ -16,15 +16,20 @@ def setup_logger(phase_name):
         logger.addHandler(fh); logger.addHandler(sh)
     return logger
 
-def get_target_collections(cfg):
-    colls = set()
-    curr = cfg["start_ts"]
-    while curr < cfg["end_ts"]:
-        dt = datetime.datetime.fromtimestamp(curr / 1000.0)
-        colls.add(dt.strftime(f"%Y%m%d%H_{cfg['coll_prefix']}"))
-        curr += 3600000 
-    return sorted(list(colls))
+def get_hour_prefixes(cfg):
+    """回傳每個目標小時的 collection 前綴，例如 ['2026071808_encColl', '2026071809_encColl']"""
+    start = datetime.datetime.strptime(cfg["start_ts"], "%Y%m%d%H")
+    end   = datetime.datetime.strptime(cfg["end_ts"],   "%Y%m%d%H")
+    prefixes, curr = [], start
+    while curr <= end:
+        prefixes.append(f"{curr.strftime('%Y%m%d%H')}_{cfg['coll_prefix']}")
+        curr += datetime.timedelta(hours=1)
+    return prefixes
 
-def get_query(cfg):
-    # 這確保了不論 start/end 是不是整點，操作都只鎖定在此區間
-    return {cfg["time_field"]: {"$gte": cfg["start_ts"], "$lt": cfg["end_ts"]}}
+def get_matching_collections(db, prefixes):
+    """回傳 db 中所有以任一 prefix 開頭的 collection 名稱（已排序）"""
+    all_colls = set(db.list_collection_names())
+    result = []
+    for prefix in prefixes:
+        result.extend(c for c in sorted(all_colls) if c.startswith(prefix))
+    return result
