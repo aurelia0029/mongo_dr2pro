@@ -6,9 +6,9 @@ validate_scenarios.py
   1. 同日跨 collection
   2. 跨日
   3. 跨 00:00
-  4. 跨年
+  4. 跨年（2024 → 2025）
 """
-import sys
+import os, sys
 from pymongo import MongoClient
 
 import utils
@@ -24,51 +24,51 @@ SCENARIOS = [
     {
         "id": 1,
         "name": "同日跨 collection",
-        "desc": "2026-03-10 02:00 → 05:00",
-        "start_ts": "2026031002",
-        "end_ts":   "2026031005",
+        "desc": "2025-03-10 02:00 → 05:00",
+        "start_ts": "2025031002",
+        "end_ts":   "2025031005",
         "expected_colls": 4,
         "expected_colls_list": [
-            "2026031002_encColl", "2026031003_encColl",
-            "2026031004_encColl", "2026031005_encColl",
+            "2025031002_encColl", "2025031003_encColl",
+            "2025031004_encColl", "2025031005_encColl",
         ],
     },
     {
         "id": 2,
         "name": "跨日",
-        "desc": "2026-03-10 20:00 → 2026-03-11 03:00",
-        "start_ts": "2026031020",
-        "end_ts":   "2026031103",
+        "desc": "2025-03-10 20:00 → 2025-03-11 03:00",
+        "start_ts": "2025031020",
+        "end_ts":   "2025031103",
         "expected_colls": 8,
         "expected_colls_list": [
-            "2026031020_encColl", "2026031021_encColl",
-            "2026031022_encColl", "2026031023_encColl",
-            "2026031100_encColl", "2026031101_encColl",
-            "2026031102_encColl", "2026031103_encColl",
+            "2025031020_encColl", "2025031021_encColl",
+            "2025031022_encColl", "2025031023_encColl",
+            "2025031100_encColl", "2025031101_encColl",
+            "2025031102_encColl", "2025031103_encColl",
         ],
     },
     {
         "id": 3,
         "name": "跨 00:00",
-        "desc": "2026-03-10 23:00 → 2026-03-11 00:00",
-        "start_ts": "2026031023",
-        "end_ts":   "2026031100",
+        "desc": "2025-03-10 23:00 → 2025-03-11 00:00",
+        "start_ts": "2025031023",
+        "end_ts":   "2025031100",
         "expected_colls": 2,
         "expected_colls_list": [
-            "2026031023_encColl",
-            "2026031100_encColl",
+            "2025031023_encColl",
+            "2025031100_encColl",
         ],
     },
     {
         "id": 4,
         "name": "跨年",
-        "desc": "2025-12-31 22:00 → 2026-01-01 01:00",
-        "start_ts": "2025123122",
-        "end_ts":   "2026010101",
+        "desc": "2024-12-31 22:00 → 2025-01-01 01:00",
+        "start_ts": "2024123122",
+        "end_ts":   "2025010101",
         "expected_colls": 4,
         "expected_colls_list": [
-            "2025123122_encColl", "2025123123_encColl",
-            "2026010100_encColl", "2026010101_encColl",
+            "2024123122_encColl", "2024123123_encColl",
+            "2025010100_encColl", "2025010101_encColl",
         ],
     },
 ]
@@ -77,14 +77,13 @@ def ok_str(b):
     return f"{GREEN}OK{RESET}" if b else f"{RED}FAIL{RESET}"
 
 def _bak_exists(runtime_cfg, coll_name):
-    from pymongo import MongoClient
     all_colls = MongoClient(runtime_cfg["dst_uri"])[runtime_cfg["dst_db"]].list_collection_names()
     return any(c.startswith(f"{coll_name}_bak_") for c in all_colls)
 
 def verify(runtime_cfg, scenario):
-    p_db = MongoClient(runtime_cfg["prod_uri"])[runtime_cfg["prod_db"]]
+    dst_db = MongoClient(runtime_cfg["dst_uri"])[runtime_cfg["dst_db"]]
     prefixes = utils.get_hour_prefixes(runtime_cfg)
-    actual_colls = utils.get_matching_collections(p_db, prefixes)
+    actual_colls = utils.get_matching_collections(dst_db, prefixes)
 
     coll_count_ok = len(actual_colls) == scenario["expected_colls"]
     coll_names_ok = actual_colls == scenario["expected_colls_list"]
@@ -92,18 +91,18 @@ def verify(runtime_cfg, scenario):
     rows, all_ok = [], coll_count_ok and coll_names_ok
 
     for coll in actual_colls:
-        prod_cnt    = p_db[coll].count_documents({})
-        corrupt_cnt = p_db[coll].count_documents({"status": "CORRUPTED"})
-        valid_cnt   = p_db[coll].count_documents({"status": "VALID_DR_DATA"})
+        total_cnt   = dst_db[coll].count_documents({})
+        corrupt_cnt = dst_db[coll].count_documents({"status": "CORRUPTED"})
+        valid_cnt   = dst_db[coll].count_documents({"status": "VALID_DR_DATA"})
         bak_created = _bak_exists(runtime_cfg, coll)
 
-        row_ok = (prod_cnt == 100 and corrupt_cnt == 0
+        row_ok = (total_cnt == 100 and corrupt_cnt == 0
                   and valid_cnt == 100 and bak_created)
         if not row_ok:
             all_ok = False
 
         rows.append({
-            "coll": coll, "prod": prod_cnt, "corrupt": corrupt_cnt,
+            "coll": coll, "total": total_cnt, "corrupt": corrupt_cnt,
             "valid": valid_cnt, "bak": bak_created, "ok": row_ok,
         })
 
@@ -122,8 +121,8 @@ def run_scenario(base_runtime_cfg, scenario):
 
     phase_results = {}
     for label, func in [
-        ("Phase1 備份 Prod",        phase1_backup.run_backup),
-        ("Phase2 審計＋還原至 Prod", lambda cfg: phase2_restore.run_restore(cfg, auto_confirm=True)),
+        ("Phase1 備份",        phase1_backup.run_backup),
+        ("Phase2 審計＋還原",  lambda cfg: phase2_restore.run_restore(cfg, auto_confirm=True)),
     ]:
         print(f"\n[{label}] 執行中...")
         phase_results[label] = func(runtime_cfg)
@@ -138,12 +137,12 @@ def run_scenario(base_runtime_cfg, scenario):
         print(f"  預期: {scenario['expected_colls_list']}")
         print(f"  實際: {actual_colls}")
 
-    hdr = f"  {'集合名稱':<28} {'prod':>5} {'corrupt':>7} {'valid_dr':>8} {'bak':>4}  結果"
+    hdr = f"  {'集合名稱':<28} {'total':>5} {'corrupt':>7} {'valid_dr':>8} {'bak':>4}  結果"
     print(f"\n{hdr}")
     print("  " + "─" * 57)
     for r in rows:
         bak_str = "Y" if r["bak"] else f"{RED}N{RESET}"
-        print(f"  {r['coll']:<28} {r['prod']:>5} {r['corrupt']:>7} {r['valid']:>8}"
+        print(f"  {r['coll']:<28} {r['total']:>5} {r['corrupt']:>7} {r['valid']:>8}"
               f"  {bak_str:>4}  {ok_str(r['ok'])}")
 
     overall = phases_ok and all_ok
@@ -157,8 +156,8 @@ def main():
         sys.exit(1)
 
     full_cfg = utils.load_config()
-    # 帳密只問一次，方向固定 DR → Central，時間範圍由各 scenario 帶入
-    base_runtime_cfg = utils.prompt_credentials_and_connect(full_cfg["job_config"], "dr_to_central")
+    direction = utils.prompt_direction(full_cfg["job_config"])
+    base_runtime_cfg = utils.prompt_credentials_and_connect(full_cfg["job_config"], direction)
     base_runtime_cfg["data_schema"] = full_cfg["data_schema"]
 
     results = []

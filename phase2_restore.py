@@ -3,6 +3,23 @@ from pymongo import MongoClient
 import utils
 from audit import run_audit
 
+def show_drop_preview(runtime_cfg):
+    """Display destination collection counts without prompting. Called by runner.py before timer starts."""
+    src_db = MongoClient(runtime_cfg["src_uri"])[runtime_cfg["src_db"]]
+    colls = utils.get_matching_collections(src_db, utils.get_hour_prefixes(runtime_cfg))
+    dst_db = MongoClient(runtime_cfg["dst_uri"])[runtime_cfg["dst_db"]]
+    dst_coll_names = set(dst_db.list_collection_names())
+
+    print(f"\n以下目的端集合將被 drop 並從來源端覆蓋還原 [{runtime_cfg['dst_db']}]：")
+    print(f"  {'集合名稱':<35} {'目前筆數':>8}")
+    print("  " + "─" * 47)
+    for coll_name in colls:
+        if coll_name in dst_coll_names:
+            cnt = dst_db[coll_name].count_documents({})
+            print(f"  {coll_name:<35} {cnt:>8}")
+        else:
+            print(f"  {coll_name:<35} {'(不存在)':>8}")
+
 def run_restore(runtime_cfg, auto_confirm=False):
     logger = utils.setup_logger("Phase2")
     try:
@@ -13,20 +30,8 @@ def run_restore(runtime_cfg, auto_confirm=False):
         src_db = MongoClient(runtime_cfg["src_uri"])[runtime_cfg["src_db"]]
         colls = utils.get_matching_collections(src_db, utils.get_hour_prefixes(runtime_cfg))
 
-        dst_db = MongoClient(runtime_cfg["dst_uri"])[runtime_cfg["dst_db"]]
-        dst_coll_names = set(dst_db.list_collection_names())
-
-        print(f"\n以下目的端集合將被 drop 並從來源端覆蓋還原 [{runtime_cfg['dst_db']}]：")
-        print(f"  {'集合名稱':<35} {'目前筆數':>8}")
-        print("  " + "─" * 47)
-        for coll_name in colls:
-            if coll_name in dst_coll_names:
-                cnt = dst_db[coll_name].count_documents({})
-                print(f"  {coll_name:<35} {cnt:>8}")
-            else:
-                print(f"  {coll_name:<35} {'(不存在)':>8}")
-
         if not auto_confirm:
+            show_drop_preview(runtime_cfg)
             confirm = input("\n確認執行 drop 並還原？(y/n): ").strip().lower()
             if confirm != 'y':
                 logger.info("使用者取消操作。")

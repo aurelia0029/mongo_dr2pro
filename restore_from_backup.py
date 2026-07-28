@@ -1,49 +1,58 @@
 from pymongo import MongoClient
 import utils
 
-def run_restore_from_backup(runtime_cfg):
+def _build_backup_plan(runtime_cfg):
+    """Returns (client, db, all_colls, restore_plan)."""
+    client = MongoClient(runtime_cfg["dst_uri"])
+    db = client[runtime_cfg["dst_db"]]
+    prefixes = utils.get_hour_prefixes(runtime_cfg)
+    all_colls = set(db.list_collection_names())
+
+    backup_map = {}
+    for coll in sorted(all_colls):
+        bak_idx = coll.rfind("_bak_")
+        if bak_idx == -1:
+            continue
+        original_name = coll[:bak_idx]
+        if any(original_name.startswith(p) for p in prefixes):
+            backup_map.setdefault(original_name, []).append(coll)
+
+    restore_plan = [(orig, sorted(baks)[-1]) for orig, baks in sorted(backup_map.items())]
+    return client, db, all_colls, restore_plan
+
+def _print_backup_table(db, all_colls, restore_plan, dst_db_name):
+    print(f"\n從備份還原至目的端 [{dst_db_name}]：")
+    print(f"  {'原始集合':<35} {'目前筆數':>8}   {'備份集合（rename 來源）':<40} {'備份筆數':>8}")
+    print("  " + "─" * 97)
+    for original_name, bak_name in restore_plan:
+        orig_cnt = f"{db[original_name].count_documents({}):>8}" if original_name in all_colls else f"{'(不存在)':>8}"
+        bak_cnt = db[bak_name].count_documents({})
+        print(f"  {original_name:<35} {orig_cnt}   {bak_name:<40} {bak_cnt:>8}")
+
+def show_backup_plan(runtime_cfg):
+    """Display backup restore plan without prompting. Returns True if backups found."""
+    _, db, all_colls, restore_plan = _build_backup_plan(runtime_cfg)
+    if not restore_plan:
+        print("找不到符合時間範圍的備份集合。")
+        return False
+    _print_backup_table(db, all_colls, restore_plan, runtime_cfg["dst_db"])
+    return True
+
+def run_restore_from_backup(runtime_cfg, skip_global_confirm=False):
     logger = utils.setup_logger("RestoreBackup")
     try:
-        client = MongoClient(runtime_cfg["dst_uri"])
-        db = client[runtime_cfg["dst_db"]]
-        prefixes = utils.get_hour_prefixes(runtime_cfg)
-        all_colls = set(db.list_collection_names())
+        client, db, all_colls, restore_plan = _build_backup_plan(runtime_cfg)
 
-        # Find backup collections and map them to their original names
-        backup_map = {}  # original_name → [backup_names]
-        for coll in sorted(all_colls):
-            bak_idx = coll.rfind("_bak_")
-            if bak_idx == -1:
-                continue
-            original_name = coll[:bak_idx]
-            if any(original_name.startswith(p) for p in prefixes):
-                backup_map.setdefault(original_name, []).append(coll)
-
-        if not backup_map:
+        if not restore_plan:
             logger.info("找不到符合時間範圍的備份集合。")
             return False
 
-        # Build restore plan: pick the latest backup per original collection
-        restore_plan = []
-        for original_name in sorted(backup_map):
-            latest_bak = sorted(backup_map[original_name])[-1]
-            restore_plan.append((original_name, latest_bak))
-
-        print(f"\n從備份還原至目的端 [{runtime_cfg['dst_db']}]：")
-        print(f"  {'原始集合':<35} {'目前筆數':>8}   {'備份集合（rename 來源）':<40} {'備份筆數':>8}")
-        print("  " + "─" * 97)
-        for original_name, bak_name in restore_plan:
-            if original_name in all_colls:
-                orig_cnt = f"{db[original_name].count_documents({}):>8}"
-            else:
-                orig_cnt = f"{'(不存在)':>8}"
-            bak_cnt = db[bak_name].count_documents({})
-            print(f"  {original_name:<35} {orig_cnt}   {bak_name:<40} {bak_cnt:>8}")
-
-        confirm = input("\n確認開始從備份還原？(y/n): ").strip().lower()
-        if confirm != 'y':
-            logger.info("使用者取消操作。")
-            return False
+        if not skip_global_confirm:
+            _print_backup_table(db, all_colls, restore_plan, runtime_cfg["dst_db"])
+            confirm = input("\n確認開始從備份還原？(y/n): ").strip().lower()
+            if confirm != 'y':
+                logger.info("使用者取消操作。")
+                return False
 
         skipped = []
         for original_name, bak_name in restore_plan:
