@@ -30,7 +30,7 @@ def run_restore_from_backup(runtime_cfg):
             restore_plan.append((original_name, latest_bak))
 
         print(f"\n從備份還原至目的端 [{runtime_cfg['dst_db']}]：")
-        print(f"  {'原始集合（將被 drop）':<35} {'目前筆數':>8}   {'備份集合（rename 來源）':<40} {'備份筆數':>8}")
+        print(f"  {'原始集合':<35} {'目前筆數':>8}   {'備份集合（rename 來源）':<40} {'備份筆數':>8}")
         print("  " + "─" * 97)
         for original_name, bak_name in restore_plan:
             if original_name in all_colls:
@@ -40,15 +40,34 @@ def run_restore_from_backup(runtime_cfg):
             bak_cnt = db[bak_name].count_documents({})
             print(f"  {original_name:<35} {orig_cnt}   {bak_name:<40} {bak_cnt:>8}")
 
-        confirm = input("\n確認 drop 原始集合並從備份 rename 還原？(y/n): ").strip().lower()
+        confirm = input("\n確認開始從備份還原？(y/n): ").strip().lower()
         if confirm != 'y':
             logger.info("使用者取消操作。")
             return False
 
+        skipped = []
         for original_name, bak_name in restore_plan:
-            if original_name in db.list_collection_names():
+            current_colls = set(db.list_collection_names())
+
+            if original_name in current_colls:
+                cnt = db[original_name].count_documents({})
+                print(f"\n集合 [{original_name}] 目前已存在，共 {cnt} 筆資料。")
+                drop_confirm = input(f"  是否刪除現有集合以還原備份？(y/n): ").strip().lower()
+                if drop_confirm != 'y':
+                    logger.info(f"跳過 {original_name}（使用者選擇不刪除現有集合）")
+                    skipped.append(original_name)
+                    continue
+
+                typed = input(f"  請輸入集合名稱確認刪除（{original_name}）: ").strip()
+                if typed != original_name:
+                    print(f"  名稱不符，跳過 {original_name}。")
+                    logger.info(f"跳過 {original_name}（確認名稱輸入錯誤）")
+                    skipped.append(original_name)
+                    continue
+
                 db[original_name].drop()
-                logger.info(f"已 drop {original_name}")
+                logger.info(f"已 drop {original_name}（{cnt} 筆）")
+
             client.admin.command(
                 "renameCollection",
                 f"{runtime_cfg['dst_db']}.{bak_name}",
@@ -56,7 +75,10 @@ def run_restore_from_backup(runtime_cfg):
             )
             logger.info(f"{bak_name} → {original_name}")
 
-        return True
+        if skipped:
+            logger.warning(f"以下集合已跳過未還原：{skipped}")
+
+        return len(skipped) == 0
     except Exception as e:
         logger.error(f"從備份還原失敗: {e}")
         return False
