@@ -8,12 +8,12 @@ validate_scenarios.py
   3. 跨 00:00
   4. 跨年
 """
-import json, os, sys
+import sys
 from pymongo import MongoClient
 
-import generate_test_data_pro
-import phase1_evacuation, phase2_data_integrity_audit, phase3_restore
 import utils
+import generate_test_data_pro
+import phase1_backup, phase2_restore
 
 CONFIG_PATH = "schema_check.json"
 GREEN = "\033[92m"
@@ -73,34 +73,17 @@ SCENARIOS = [
     },
 ]
 
-# ─────────────────────────────────────────────
-def write_config(base_cfg, start_ts, end_ts):
-    cfg = json.loads(json.dumps(base_cfg))
-    cfg["job_config"]["start_ts"] = start_ts
-    cfg["job_config"]["end_ts"]   = end_ts
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f, indent=2)
-
-def restore_config(base_cfg):
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(base_cfg, f, indent=2)
-
 def ok_str(b):
     return f"{GREEN}OK{RESET}" if b else f"{RED}FAIL{RESET}"
 
-def _bak_exists(prod_db, coll_name):
-    bak_root = "backups"
-    if not os.path.isdir(bak_root):
-        return False
-    return any(
-        os.path.exists(os.path.join(bak_root, d, prod_db, f"{coll_name}.bson"))
-        for d in os.listdir(bak_root) if d.startswith("bak_")
-    )
+def _bak_exists(runtime_cfg, coll_name):
+    from pymongo import MongoClient
+    all_colls = MongoClient(runtime_cfg["dst_uri"])[runtime_cfg["dst_db"]].list_collection_names()
+    return any(c.startswith(f"{coll_name}_bak_") for c in all_colls)
 
-# ─────────────────────────────────────────────
-def verify(job_cfg, scenario):
-    p_db = MongoClient(job_cfg["prod_uri"])[job_cfg["prod_db"]]
-    prefixes = utils.get_hour_prefixes(job_cfg)
+def verify(runtime_cfg, scenario):
+    p_db = MongoClient(runtime_cfg["prod_uri"])[runtime_cfg["prod_db"]]
+    prefixes = utils.get_hour_prefixes(runtime_cfg)
     actual_colls = utils.get_matching_collections(p_db, prefixes)
 
     coll_count_ok = len(actual_colls) == scenario["expected_colls"]
@@ -112,7 +95,7 @@ def verify(job_cfg, scenario):
         prod_cnt    = p_db[coll].count_documents({})
         corrupt_cnt = p_db[coll].count_documents({"status": "CORRUPTED"})
         valid_cnt   = p_db[coll].count_documents({"status": "VALID_DR_DATA"})
-        bak_created = _bak_exists(job_cfg["prod_db"], coll)
+        bak_created = _bak_exists(runtime_cfg, coll)
 
         row_ok = (prod_cnt == 100 and corrupt_cnt == 0
                   and valid_cnt == 100 and bak_created)
@@ -126,34 +109,27 @@ def verify(job_cfg, scenario):
 
     return all_ok, coll_count_ok, coll_names_ok, actual_colls, rows
 
-# ─────────────────────────────────────────────
-def run_scenario(base_cfg, scenario):
+def run_scenario(base_runtime_cfg, scenario):
     SEP = "=" * 65
     print(f"\n{SEP}")
     print(f"Scenario {scenario['id']}: {scenario['name']}  ({scenario['desc']})")
     print(SEP)
 
-    write_config(base_cfg, scenario["start_ts"], scenario["end_ts"])
-
-    job_cfg = json.loads(json.dumps(base_cfg["job_config"]))
-    job_cfg["start_ts"] = scenario["start_ts"]
-    job_cfg["end_ts"]   = scenario["end_ts"]
+    runtime_cfg = {**base_runtime_cfg, "start_ts": scenario["start_ts"], "end_ts": scenario["end_ts"]}
 
     print("\n[Setup] 產生測試資料...")
-    generate_test_data_pro.generate_test_data()
+    generate_test_data_pro.generate_test_data(runtime_cfg)
 
     phase_results = {}
     for label, func in [
-        ("Phase1 備份 Prod",   phase1_evacuation.run_evacuation),
-        ("Phase2 審計 DR",     phase2_data_integrity_audit.run_audit),
-        ("Phase3 還原至 Prod", phase3_restore.run_restore),
+        ("Phase1 備份 Prod",        phase1_backup.run_backup),
+        ("Phase2 審計＋還原至 Prod", lambda cfg: phase2_restore.run_restore(cfg, auto_confirm=True)),
     ]:
         print(f"\n[{label}] 執行中...")
-        phase_results[label] = func()
+        phase_results[label] = func(runtime_cfg)
 
     phases_ok = all(phase_results.values())
-
-    all_ok, coll_count_ok, coll_names_ok, actual_colls, rows = verify(job_cfg, scenario)
+    all_ok, coll_count_ok, coll_names_ok, actual_colls, rows = verify(runtime_cfg, scenario)
 
     print(f"\n{'─'*65}")
     print(f"集合數量 : 預期 {scenario['expected_colls']}，實際 {len(actual_colls)} → {ok_str(coll_count_ok)}")
@@ -175,22 +151,20 @@ def run_scenario(base_cfg, scenario):
     print(f"\n>>> Scenario {scenario['id']} {verdict} <<<")
     return overall
 
-# ─────────────────────────────────────────────
 def main():
     if not os.path.exists(CONFIG_PATH):
         print(f"ERROR: 找不到 {CONFIG_PATH}，請先從 schema_check.json.example 建立設定檔。")
         sys.exit(1)
 
-    with open(CONFIG_PATH) as f:
-        base_cfg = json.load(f)
+    full_cfg = utils.load_config()
+    # 帳密只問一次，方向固定 DR → Central，時間範圍由各 scenario 帶入
+    base_runtime_cfg = utils.prompt_credentials_and_connect(full_cfg["job_config"], "dr_to_central")
+    base_runtime_cfg["data_schema"] = full_cfg["data_schema"]
 
     results = []
-    try:
-        for scenario in SCENARIOS:
-            ok = run_scenario(base_cfg, scenario)
-            results.append((scenario["id"], scenario["name"], ok))
-    finally:
-        restore_config(base_cfg)
+    for scenario in SCENARIOS:
+        ok = run_scenario(base_runtime_cfg, scenario)
+        results.append((scenario["id"], scenario["name"], ok))
 
     print(f"\n{'='*65}")
     print("最終摘要")

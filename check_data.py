@@ -1,16 +1,13 @@
-import json
+import utils
 from pymongo import MongoClient
 
-with open("schema_check.json", "r") as f:
-    full_cfg = json.load(f)
-
-cfg = full_cfg["job_config"]
-required_fields = full_cfg["data_schema"]["required_fields"]
+runtime_cfg = utils.get_runtime_cfg()
+required_fields = runtime_cfg["data_schema"]["required_fields"]
 
 def check(uri, db_name, label):
     db = MongoClient(uri)[db_name]
     print(f"\n=== {label} ({db_name}) ===")
-    colls = [c for c in db.list_collection_names() if cfg["coll_prefix"] in c]
+    colls = [c for c in db.list_collection_names() if runtime_cfg["coll_prefix"] in c]
     for c in sorted(colls):
         count = db[c].count_documents({})
         sample = db[c].find_one()
@@ -23,5 +20,5 @@ def check(uri, db_name, label):
         else:
             print(f"集合: {c} | 筆數: {count} | (空集合)")
 
-check(cfg["prod_uri"], cfg["prod_db"], "Production")
-check(cfg["dr_uri"], cfg["dr_db"], "DR Site")
+check(runtime_cfg["prod_uri"], runtime_cfg["prod_db"], "Production")
+check(runtime_cfg["dr_uri"],   runtime_cfg["dr_db"],   "DR Site")

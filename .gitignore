@@ -13,10 +13,9 @@ venv/
 env/
 ENV/
 
-# Logs and backups (runtime generated, do not commit)
+# Logs (runtime generated, do not commit)
 logs/
 *.log
-backups/
 
 # IDE / Editor
 .vscode/

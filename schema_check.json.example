@@ -1,13 +1,11 @@
 {
   "job_config": {
-    "start_ts": "2026071808",
-    "end_ts":   "2026071810",
-    "time_field": "B",
-    "prod_uri": "mongodb://<PROD_HOST>:27017",
-    "dr_uri":   "mongodb://<DR_HOST>:27017",
-    "prod_db":  "PROD_DB",
-    "dr_db":    "DR_DB",
-    "coll_prefix": "encColl"
+    "prod_host": "<PROD_HOST>:27017",
+    "dr_host":   "<DR_HOST>:27017",
+    "prod_db":   "PROD_DB",
+    "dr_db":     "DR_DB",
+    "coll_prefix": "encColl",
+    "time_field": "B"
   },
   "data_schema": {
     "required_fields": ["A", "B", "G", "M", "J", "N", "H1", "H2", "K1", "K2", "P", "Q", "R", "S", "O", "W", "BV", "T", "C", "D", "E", "V", "U", "F", "AE"],
