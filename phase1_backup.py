@@ -7,7 +7,8 @@ def run_backup(runtime_cfg):
     try:
         client = MongoClient(runtime_cfg["dst_uri"])
         db = client[runtime_cfg["dst_db"]]
-        colls = utils.get_matching_collections(db, utils.get_hour_prefixes(runtime_cfg))
+        colls = utils.get_matching_collections(db, utils.get_hour_prefixes(runtime_cfg),
+                                               runtime_cfg.get("subcoll_suffix"))
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M')
 
         logger.info(f"備份目的地 [{runtime_cfg['dst_db']}]: {runtime_cfg['start_ts']} - {runtime_cfg['end_ts']}，共 {len(colls)} 個集合")
@@ -25,4 +26,9 @@ def run_backup(runtime_cfg):
         return False
 
 if __name__ == "__main__":
-    run_backup(utils.get_runtime_cfg())
+    runtime_cfg = utils.get_runtime_cfg()
+    log_handler, log_path = utils.open_session_log("backup")
+    try:
+        run_backup(runtime_cfg)
+    finally:
+        utils.close_session_log(log_handler)

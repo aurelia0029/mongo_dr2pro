@@ -7,7 +7,8 @@ def run_audit(runtime_cfg):
         schema = runtime_cfg["data_schema"]
         db = MongoClient(runtime_cfg["src_uri"])[runtime_cfg["src_db"]]
         t_map = {"int": int, "str": str, "bytes": bytes}
-        colls = utils.get_matching_collections(db, utils.get_hour_prefixes(runtime_cfg))
+        colls = utils.get_matching_collections(db, utils.get_hour_prefixes(runtime_cfg),
+                                               runtime_cfg.get("subcoll_suffix"))
 
         logger.info(f"審計來源 [{runtime_cfg['src_db']}]，共 {len(colls)} 個集合")
         for coll_name in colls:
@@ -25,4 +26,9 @@ def run_audit(runtime_cfg):
         return False
 
 if __name__ == "__main__":
-    run_audit(utils.get_runtime_cfg())
+    runtime_cfg = utils.get_runtime_cfg()
+    log_handler, log_path = utils.open_session_log("audit")
+    try:
+        run_audit(runtime_cfg)
+    finally:
+        utils.close_session_log(log_handler)

@@ -6,6 +6,7 @@ def _build_backup_plan(runtime_cfg):
     client = MongoClient(runtime_cfg["dst_uri"])
     db = client[runtime_cfg["dst_db"]]
     prefixes = utils.get_hour_prefixes(runtime_cfg)
+    subcoll_suffix = runtime_cfg.get("subcoll_suffix")
     all_colls = set(db.list_collection_names())
 
     backup_map = {}
@@ -14,7 +15,11 @@ def _build_backup_plan(runtime_cfg):
         if bak_idx == -1:
             continue
         original_name = coll[:bak_idx]
-        if any(original_name.startswith(p) for p in prefixes):
+        if subcoll_suffix is None:
+            matches = any(original_name.startswith(p) for p in prefixes)
+        else:
+            matches = any(original_name == f"{p}_{subcoll_suffix}" for p in prefixes)
+        if matches:
             backup_map.setdefault(original_name, []).append(coll)
 
     restore_plan = [(orig, sorted(baks)[-1]) for orig, baks in sorted(backup_map.items())]
@@ -93,4 +98,9 @@ def run_restore_from_backup(runtime_cfg, skip_global_confirm=False):
         return False
 
 if __name__ == "__main__":
-    run_restore_from_backup(utils.get_runtime_cfg())
+    runtime_cfg = utils.get_runtime_cfg()
+    log_handler, log_path = utils.open_session_log("restore_from_backup")
+    try:
+        run_restore_from_backup(runtime_cfg)
+    finally:
+        utils.close_session_log(log_handler)

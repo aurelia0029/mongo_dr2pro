@@ -5,28 +5,27 @@ import phase1_backup, audit, phase2_restore, restore_from_backup
 def main():
     runtime_cfg = utils.get_runtime_cfg()
 
-    # (label, preview_fn, exec_fn)
-    # preview_fn: called before timer — shows info and returns None (always proceed to confirm)
-    #             or returns False (nothing to do, skip)
-    # exec_fn:    called after confirmation, inside the timer
+    # (label, log_name, preview_fn, exec_fn)
+    # preview_fn: called before timer and session log — shows info, returns None (proceed) or False (nothing to do)
+    # exec_fn:    called after confirmation, inside the timer and session log
     steps = {
-        "1": ("備份原始資料",
+        "1": ("備份原始資料",       "backup",
               None,
               lambda: phase1_backup.run_backup(runtime_cfg)),
-        "2": ("開始轉移資料",
-              lambda: phase2_restore.show_drop_preview(runtime_cfg),
-              lambda: phase2_restore.run_restore(runtime_cfg, auto_confirm=True)),
-        "R": ("還原備份資料",
+        "2": ("開始轉移資料",       "restore",
+              lambda: phase2_restore.show_transfer_info(runtime_cfg),
+              lambda: phase2_restore.run_restore(runtime_cfg, skip_drop_confirm=True)),
+        "R": ("還原備份資料",       "restore_from_backup",
               lambda: restore_from_backup.show_backup_plan(runtime_cfg),
               lambda: restore_from_backup.run_restore_from_backup(runtime_cfg, skip_global_confirm=True)),
-        "A": ("檢查欲轉移資料格式",
+        "A": ("檢查欲轉移資料格式", "audit",
               None,
               lambda: audit.run_audit(runtime_cfg)),
     }
 
     while True:
         print("\n=== IPDR 修復流程 ===")
-        for k, (label, _, _) in steps.items():
+        for k, (label, _, _, _) in steps.items():
             print(f"  [{k}] {label}")
         choice = input("\n請選擇步驟 (Q退出): ").upper()
         if choice == 'Q':
@@ -34,7 +33,7 @@ def main():
         if choice not in steps:
             continue
 
-        label, preview_fn, exec_fn = steps[choice]
+        label, log_name, preview_fn, exec_fn = steps[choice]
 
         if preview_fn is not None:
             result = preview_fn()
@@ -45,9 +44,13 @@ def main():
                 print("操作已取消。")
                 continue
 
+        log_handler, log_path = utils.open_session_log(log_name)
         t0 = time.perf_counter()
-        exec_fn()
-        elapsed = time.perf_counter() - t0
+        try:
+            exec_fn()
+        finally:
+            elapsed = time.perf_counter() - t0
+            utils.close_session_log(log_handler)
         print(f"\n✅ {label} 已執行完畢。（耗時 {elapsed:.1f} 秒）")
 
 if __name__ == "__main__":

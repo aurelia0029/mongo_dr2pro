@@ -6,16 +6,34 @@ def load_config():
         return json.load(f)
 
 def setup_logger(phase_name):
-    if not os.path.exists("logs"): os.makedirs("logs")
-    log_filename = f"logs/recovery_{datetime.datetime.now().strftime('%Y%m%d')}.log"
+    """Console-only logger. File logging is handled by open_session_log."""
     logger = logging.getLogger(phase_name)
     logger.setLevel(logging.INFO)
-    if not logger.handlers:
-        formatter = logging.Formatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s')
-        fh = logging.FileHandler(log_filename, encoding='utf-8'); fh.setFormatter(formatter)
-        sh = logging.StreamHandler(); sh.setFormatter(formatter)
-        logger.addHandler(fh); logger.addHandler(sh)
+    for h in logger.handlers[:]:
+        h.close()
+        logger.removeHandler(h)
+    sh = logging.StreamHandler()
+    sh.setFormatter(logging.Formatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s'))
+    logger.addHandler(sh)
     return logger
+
+def open_session_log(log_name):
+    """Add a timestamped FileHandler to the root logger. Returns (handler, log_path)."""
+    os.makedirs("logs", exist_ok=True)
+    ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_path = f"logs/{log_name}_{ts}.log"
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s'))
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(handler)
+    print(f"[日誌] 寫入 {log_path}")
+    return handler, log_path
+
+def close_session_log(handler):
+    """Remove FileHandler from root logger and close the file."""
+    logging.getLogger().removeHandler(handler)
+    handler.close()
 
 def get_hour_prefixes(cfg):
     start = datetime.datetime.strptime(cfg["start_ts"], "%Y%m%d%H")
@@ -26,11 +44,16 @@ def get_hour_prefixes(cfg):
         curr += datetime.timedelta(hours=1)
     return prefixes
 
-def get_matching_collections(db, prefixes):
+def get_matching_collections(db, prefixes, subcoll_suffix=None):
     all_colls = set(db.list_collection_names())
     result = []
     for prefix in prefixes:
-        result.extend(c for c in sorted(all_colls) if c.startswith(prefix))
+        if subcoll_suffix is None:
+            result.extend(c for c in sorted(all_colls) if c.startswith(prefix))
+        else:
+            target = f"{prefix}_{subcoll_suffix}"
+            if target in all_colls:
+                result.append(target)
     return result
 
 def _build_uri(host, username, password):
@@ -109,12 +132,32 @@ def prompt_time_range(cfg):
             return temp_cfg
         print("重新輸入時間範圍。")
 
+def prompt_subcoll_selection(cfg):
+    """詢問搬移所有分表或單一分表。設定 cfg['subcoll_suffix']（None=所有，字串=單一）。"""
+    prefixes = get_hour_prefixes(cfg)
+    example = prefixes[0] if prefixes else f"(YYYYMMDDHH)_{cfg['coll_prefix']}"
+    print(f"\n分表選擇：")
+    print(f"  [0] 所有分表（{example}, {example}_1, {example}_2 ...）")
+    print(f"  [N] 單一分表（輸入分表編號，例：1 → 只搬移 {example}_1）")
+    while True:
+        choice = input("\n請選擇（0=全部，或輸入分表編號）: ").strip()
+        if choice == "0" or choice == "":
+            cfg["subcoll_suffix"] = None
+            print("已選擇：所有分表。")
+            return cfg
+        if choice.isdigit() and int(choice) > 0:
+            cfg["subcoll_suffix"] = choice
+            print(f"已選擇：分表 _{choice}（例：{example}_{choice}）")
+            return cfg
+        print("請輸入 0（全部）或正整數分表編號。")
+
 def get_runtime_cfg():
-    """完整互動流程：載入設定 → 搬移方向 → 帳密登入 → 時間範圍確認。"""
+    """完整互動流程：載入設定 → 搬移方向 → 帳密登入 → 時間範圍確認 → 分表選擇。"""
     full_cfg = load_config()
     base_cfg = full_cfg["job_config"]
     direction = prompt_direction(base_cfg)
     cfg = prompt_credentials_and_connect(base_cfg, direction)
     cfg = prompt_time_range(cfg)
+    cfg = prompt_subcoll_selection(cfg)
     cfg["data_schema"] = full_cfg["data_schema"]
     return cfg
