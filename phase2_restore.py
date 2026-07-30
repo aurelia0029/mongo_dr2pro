@@ -40,17 +40,17 @@ def show_transfer_info(runtime_cfg):
         else:
             print(f"  {coll_name:<35} {'(不存在)':>8}")
 
-    print(f"\n目的端磁碟空間（/var/lib/mongo）：")
+    print(f"\n目的端磁碟空間（[{runtime_cfg['dst_db']}] 所在檔案系統）：")
     try:
-        r = subprocess.run(["df", "-h", "/var/lib/mongo"], capture_output=True, text=True)
-        if r.returncode == 0:
-            lines = r.stdout.strip().splitlines()
-            for line in lines:
-                print(f"  {line}")
-        else:
-            print("  （無法取得磁碟資訊）")
+        stats = dst_db.command("dbStats")
+        fs_total = stats.get("fsTotalSize", 0)
+        fs_used  = stats.get("fsUsedSize", 0)
+        fs_avail = fs_total - fs_used
+        fs_pct   = (fs_used / fs_total * 100) if fs_total > 0 else 0
+        print(f"  {'Size':>10}  {'Used':>10}  {'Avail':>10}  {'Use%':>5}")
+        print(f"  {_fmt_bytes(fs_total):>10}  {_fmt_bytes(fs_used):>10}  {_fmt_bytes(fs_avail):>10}  {fs_pct:>4.1f}%")
     except Exception:
-        print("  （無法取得磁碟資訊）")
+        print("  （無法取得磁碟資訊，需 MongoDB 4.4+）")
 
 def run_restore(runtime_cfg, auto_confirm=False, skip_drop_confirm=False):
     """

@@ -17,7 +17,7 @@ Production ───────────────────────
 | 功能 | 腳本 | 說明 |
 |------|------|------|
 | Phase 1：備份 | `phase1_backup.py` | 對目的端集合執行 `renameCollection`，重命名為 `{coll}_bak_{YYYYMMDD_HHMM}`（O(1)） |
-| Phase 2：還原 | `phase2_restore.py` | 內含審計；顯示目的端各集合筆數並詢問確認後，`mongodump` 來源端 → `mongorestore --drop` 覆蓋目的端 |
+| Phase 2：還原 | `phase2_restore.py` | 審計 → 顯示搬移前資訊（筆數／大小／磁碟空間）→ 確認 → `mongodump` + `mongorestore --drop` → 搬移後筆數核對 |
 | 從備份還原 | `restore_from_backup.py` | 顯示 backup 集合筆數並詢問確認後，drop 目的端原集合，將 backup 集合 rename 回原名 |
 | 審計 | `audit.py` | 抽樣來源端最多 1000 筆/集合，驗證欄位存在與型別；非阻斷式，亦嵌入 Phase 2 |
 
@@ -45,6 +45,7 @@ mongo_dr2pro/
 - Python 3.9+
 - pymongo
 - MongoDB Database Tools（`mongodump` / `mongorestore`）
+- 目的端 MongoDB 4.4+（磁碟空間查詢需 `dbStats.fsTotalSize`）
 
 ```bash
 python -m venv .venv
@@ -97,8 +98,9 @@ python runner.py
 執行後依序互動：
 
 1. **選擇搬移方向**（同時顯示兩端 IP，y/n 確認）
-2. **輸入帳號密碼**（最多三次；會同時 ping 兩端 MongoDB，失敗則結束）
+2. **輸入帳號密碼**（最多三次；以 pymongo `ping` 同時驗證兩端 MongoDB 連線，失敗則結束）
 3. **輸入時間範圍**（格式 `YYYYMMDDHH`；確認後列出將處理的集合前綴，y/n 確認）
+4. **選擇分表範圍**（`0` = 所有分表，`N` = 僅搬移第 N 號分表，例如輸入 `1` 則只處理 `*_encColl_1`）
 
 ```
 === IPDR 修復流程 ===
@@ -110,7 +112,7 @@ python runner.py
 請選擇步驟 (Q退出):
 ```
 
-每個步驟執行完畢後會顯示實際耗時，例如：`✅ 開始轉移資料 已執行完畢。（耗時 47.3 秒）`
+每個步驟執行完畢後會顯示實際耗時（不含使用者操作時間），例如：`✅ 開始轉移資料 已執行完畢。（耗時 47.3 秒）`
 
 ### 單獨執行各功能
 
@@ -121,21 +123,27 @@ python restore_from_backup.py
 python audit.py
 ```
 
-單獨執行時同樣觸發完整互動流程（方向 → 登入 → 時間範圍）。
+單獨執行時同樣觸發完整互動流程（方向 → 登入 → 時間範圍 → 分表選擇）。
 
 ## 集合命名規則
 
-集合名稱格式：`{YYYYMMDDHH}_{coll_prefix}*`
+集合名稱格式：`{YYYYMMDDHH}_{coll_prefix}[_{N}]`
 
-例如 `start_ts=2026071808`、`end_ts=2026071810`，將處理所有名稱以以下前綴開頭的集合：
+例如 `start_ts=2026071808`、`end_ts=2026071810`，選擇所有分表時，將處理所有名稱以以下前綴開頭的集合：
 
 ```
-2026071808_encColl*
+2026071808_encColl*   （含 _1、_2 等分表）
 2026071809_encColl*
 2026071810_encColl*
 ```
 
-支援子集合（如 `2026071808_encColl_1`、`2026071808_encColl_2`）——只要名稱以對應前綴開頭均納入。
+若選擇單一分表（例如輸入 `1`），則只處理：
+
+```
+2026071808_encColl_1
+2026071809_encColl_1
+2026071810_encColl_1
+```
 
 ## Phase 1 備份機制
 
@@ -146,8 +154,13 @@ Phase 1 對目的端現有集合執行 `renameCollection`（O(1)，僅更新 met
 Phase 2 流程：
 
 1. 執行審計（抽樣來源端，驗證欄位與型別，非阻斷式）
-2. **顯示目的端各集合目前筆數，詢問使用者確認（y/n）後才執行 drop**
-3. 對每個集合執行 `mongodump`（來源端）→ `mongorestore --drop`（目的端）
+2. **搬移前資訊確認**（在計時器啟動前顯示，不計入耗時）：
+   - 來源端各集合筆數與儲存大小（`collStats.storageSize`）
+   - 目的端各集合目前筆數
+   - 目的端磁碟空間（透過 `dbStats.fsTotalSize`／`fsUsedSize` 查詢目的端伺服器，等同於在目的端執行 `df -h /var/lib/mongo`）
+3. y/n 確認後才執行 drop
+4. 對每個集合執行 `mongodump`（來源端）→ `mongorestore --drop`（目的端），`mongorestore` 進度即時顯示於終端
+5. **搬移後筆數核對**：逐集合比對來源筆數與目的筆數，並顯示合計是否一致
 
 ## 從備份還原機制
 
@@ -212,7 +225,7 @@ python validate_scenarios.py       # 四種時間邊界情境端對端驗證
 
 ## 注意事項
 
-- **Phase 2** 有兩道確認：① 啟動前顯示目的端集合筆數（y/n）；② 審計完成後再次詢問是否繼續 drop 並還原（y/n）
+- **Phase 2** 有兩道確認：① 搬移前顯示來源筆數／大小與目的端磁碟空間（y/n）；② 審計完成後再次詢問是否繼續 drop 並還原（y/n）
 - **從備份還原**對每個已存在的原集合單獨確認：y/n + 輸入集合名稱 double-check，避免誤刪
 - `schema_check.json` 含有主機資訊，**請勿提交至版控**（已列入 `.gitignore`）
 - 帳密不存在任何檔案中，每次執行皆透過互動輸入
@@ -220,4 +233,13 @@ python validate_scenarios.py       # 四種時間邊界情境端對端驗證
 
 ## 日誌
 
-執行後日誌自動寫入 `logs/recovery_YYYYMMDD.log`，同時輸出至終端。
+每次執行一個步驟，自動於 `logs/` 下產生獨立日誌檔：
+
+| 步驟 | 日誌檔命名範例 |
+|------|----------------|
+| [1] 備份 | `logs/backup_20260728_143022.log` |
+| [2] 轉移 | `logs/restore_20260728_143500.log` |
+| [R] 從備份還原 | `logs/restore_from_backup_20260728_150012.log` |
+| [A] 審計 | `logs/audit_20260728_143200.log` |
+
+日誌同時輸出至終端。計時器與日誌皆在使用者確認後才開始，不含使用者操作等待時間。
