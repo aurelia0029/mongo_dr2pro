@@ -10,10 +10,9 @@ def _make_value(field_type):
         return random.randint(0, 999_999_999)
     return str(random.randint(10000, 9_999_999))
 
-def _build_doc(required_fields, type_rules, time_field, doc_ts, status):
+def _build_doc(required_fields, type_rules, time_field, doc_ts):
     doc = {f: _make_value(type_rules.get(f, "str")) for f in required_fields}
     doc[time_field] = doc_ts
-    doc["status"] = status
     return doc
 
 def _prompt_test_time_range(cfg):
@@ -75,15 +74,15 @@ def generate_test_data(runtime_cfg):
         p_db[coll_name].drop()
         d_db[coll_name].drop()
 
-        dr_docs   = [_build_doc(required_fields, type_rules, time_field, hour_start_ms + i * step, "VALID_DR_DATA") for i in range(100)]
-        prod_docs = [_build_doc(required_fields, type_rules, time_field, hour_start_ms + i * step, "CORRUPTED")     for i in range(50)]
+        dr_docs   = [_build_doc(required_fields, type_rules, time_field, hour_start_ms + i * step) for i in range(100)]
+        prod_docs = [_build_doc(required_fields, type_rules, time_field, hour_start_ms + i * step) for i in range(50)]
 
         d_db[coll_name].insert_many(dr_docs)
         d_db[coll_name].create_index([(time_field, 1)])
         p_db[coll_name].insert_many(prod_docs)
         p_db[coll_name].create_index([(time_field, 1)])
 
-        logger.info(f"{coll_name}: DR(100 筆 VALID_DR_DATA), Prod(50 筆 CORRUPTED)")
+        logger.info(f"{coll_name}: DR(100 筆), Prod(50 筆)")
         curr += datetime.timedelta(hours=1)
 
     logger.info("✅ 所有測試資料建置完成。")

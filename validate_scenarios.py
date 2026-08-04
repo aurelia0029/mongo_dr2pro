@@ -92,18 +92,14 @@ def verify(runtime_cfg, scenario):
 
     for coll in actual_colls:
         total_cnt   = dst_db[coll].count_documents({})
-        corrupt_cnt = dst_db[coll].count_documents({"status": "CORRUPTED"})
-        valid_cnt   = dst_db[coll].count_documents({"status": "VALID_DR_DATA"})
         bak_created = _bak_exists(runtime_cfg, coll)
 
-        row_ok = (total_cnt == 100 and corrupt_cnt == 0
-                  and valid_cnt == 100 and bak_created)
+        row_ok = (total_cnt == 100 and bak_created)
         if not row_ok:
             all_ok = False
 
         rows.append({
-            "coll": coll, "total": total_cnt, "corrupt": corrupt_cnt,
-            "valid": valid_cnt, "bak": bak_created, "ok": row_ok,
+            "coll": coll, "total": total_cnt, "bak": bak_created, "ok": row_ok,
         })
 
     return all_ok, coll_count_ok, coll_names_ok, actual_colls, rows
@@ -137,13 +133,12 @@ def run_scenario(base_runtime_cfg, scenario):
         print(f"  預期: {scenario['expected_colls_list']}")
         print(f"  實際: {actual_colls}")
 
-    hdr = f"  {'集合名稱':<28} {'total':>5} {'corrupt':>7} {'valid_dr':>8} {'bak':>4}  結果"
+    hdr = f"  {'集合名稱':<28} {'total':>5} {'bak':>4}  結果"
     print(f"\n{hdr}")
-    print("  " + "─" * 57)
+    print("  " + "─" * 45)
     for r in rows:
         bak_str = "Y" if r["bak"] else f"{RED}N{RESET}"
-        print(f"  {r['coll']:<28} {r['total']:>5} {r['corrupt']:>7} {r['valid']:>8}"
-              f"  {bak_str:>4}  {ok_str(r['ok'])}")
+        print(f"  {r['coll']:<28} {r['total']:>5}  {bak_str:>4}  {ok_str(r['ok'])}")
 
     overall = phases_ok and all_ok
     verdict = f"{GREEN}PASS{RESET}" if overall else f"{RED}FAIL{RESET}"

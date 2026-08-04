@@ -1,6 +1,6 @@
 import time
 import utils
-import phase1_backup, audit, phase2_restore, restore_from_backup
+import phase1_backup, audit, phase2_restore, restore_from_backup, delete_backup
 
 def main():
     runtime_cfg = utils.get_runtime_cfg()
@@ -21,10 +21,14 @@ def main():
         "A": ("檢查欲轉移資料格式", "audit",
               None,
               lambda: audit.run_audit(runtime_cfg)),
+        "D": ("刪除備份資料",       "delete_backup",
+              lambda: delete_backup.show_delete_plan(runtime_cfg),
+              lambda: delete_backup.run_delete_backup(runtime_cfg, skip_confirm=True)),
     }
 
     while True:
         print("\n=== IPDR 修復流程 ===")
+        print("  正常流程：先執行 [1] 備份，再執行 [2] 搬移；[R][A][D] 為輔助功能")
         for k, (label, _, _, _) in steps.items():
             print(f"  [{k}] {label}")
         choice = input("\n請選擇步驟 (Q退出): ").upper()

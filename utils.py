@@ -82,30 +82,34 @@ def prompt_direction(base_cfg):
             return direction
         print("重新選擇。\n")
 
-def prompt_credentials_and_connect(base_cfg, direction):
-    """帳密輸入，最多三次。回傳加入 src_*/dst_* 的 cfg。"""
-    for attempt in range(1, 4):
-        print(f"\nMongoDB 登入 ({attempt}/3)")
+def _prompt_single_credentials(host, db_name, label, max_attempts=3):
+    """Prompt credentials for one MongoDB host. Returns URI on success, exits on failure."""
+    for attempt in range(1, max_attempts + 1):
+        print(f"\n{label} 登入 [{host}] ({attempt}/{max_attempts})")
         username = input("使用者名稱: ").strip()
         password = getpass.getpass("密碼: ")
-        prod_uri = _build_uri(base_cfg["prod_host"], username, password)
-        dr_uri   = _build_uri(base_cfg["dr_host"],   username, password)
+        uri = _build_uri(host, username, password)
         try:
-            MongoClient(prod_uri, serverSelectionTimeoutMS=5000)[base_cfg["prod_db"]].command("ping")
-            MongoClient(dr_uri,   serverSelectionTimeoutMS=5000)[base_cfg["dr_db"]].command("ping")
-            print("✅ 登入成功")
-            cfg = {**base_cfg, "prod_uri": prod_uri, "dr_uri": dr_uri}
-            if direction == "dr_to_central":
-                cfg.update({"src_uri": dr_uri,   "src_db": base_cfg["dr_db"],
-                            "dst_uri": prod_uri, "dst_db": base_cfg["prod_db"]})
-            else:
-                cfg.update({"src_uri": prod_uri, "src_db": base_cfg["prod_db"],
-                            "dst_uri": dr_uri,   "dst_db": base_cfg["dr_db"]})
-            return cfg
+            MongoClient(uri, serverSelectionTimeoutMS=5000)[db_name].command("ping")
+            print(f"✅ {label} 登入成功")
+            return uri
         except Exception as e:
             print(f"❌ 登入失敗: {e}")
-    print("超過登入次數限制，結束程式。")
+    print(f"超過登入次數限制（{label}），結束程式。")
     sys.exit(1)
+
+def prompt_credentials_and_connect(base_cfg, direction):
+    """分別輸入 DR 與 Central 帳密，各自驗證連線。回傳加入 src_*/dst_* 的 cfg。"""
+    dr_uri   = _prompt_single_credentials(base_cfg["dr_host"],   base_cfg["dr_db"],   "DR Site")
+    prod_uri = _prompt_single_credentials(base_cfg["prod_host"], base_cfg["prod_db"], "Central")
+    cfg = {**base_cfg, "prod_uri": prod_uri, "dr_uri": dr_uri}
+    if direction == "dr_to_central":
+        cfg.update({"src_uri": dr_uri,   "src_db": base_cfg["dr_db"],
+                    "dst_uri": prod_uri, "dst_db": base_cfg["prod_db"]})
+    else:
+        cfg.update({"src_uri": prod_uri, "src_db": base_cfg["prod_db"],
+                    "dst_uri": dr_uri,   "dst_db": base_cfg["dr_db"]})
+    return cfg
 
 def prompt_time_range(cfg):
     """輸入起訖小時並讓使用者確認。回傳加入 start_ts/end_ts 的 cfg。"""
