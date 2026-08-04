@@ -104,11 +104,11 @@ def prompt_credentials_and_connect(base_cfg, direction):
     prod_uri = _prompt_single_credentials(base_cfg["prod_host"], base_cfg["prod_db"], "Central")
     cfg = {**base_cfg, "prod_uri": prod_uri, "dr_uri": dr_uri}
     if direction == "dr_to_central":
-        cfg.update({"src_uri": dr_uri,   "src_db": base_cfg["dr_db"],
-                    "dst_uri": prod_uri, "dst_db": base_cfg["prod_db"]})
+        cfg.update({"src_uri": dr_uri,   "src_db": base_cfg["dr_db"],   "src_host": base_cfg["dr_host"],
+                    "dst_uri": prod_uri, "dst_db": base_cfg["prod_db"], "dst_host": base_cfg["prod_host"]})
     else:
-        cfg.update({"src_uri": prod_uri, "src_db": base_cfg["prod_db"],
-                    "dst_uri": dr_uri,   "dst_db": base_cfg["dr_db"]})
+        cfg.update({"src_uri": prod_uri, "src_db": base_cfg["prod_db"], "src_host": base_cfg["prod_host"],
+                    "dst_uri": dr_uri,   "dst_db": base_cfg["dr_db"],   "dst_host": base_cfg["dr_host"]})
     return cfg
 
 def prompt_time_range(cfg):

@@ -21,6 +21,7 @@ Production ───────────────────────
 | 從備份還原 | `restore_from_backup.py` | 顯示 backup 集合筆數並詢問確認後，drop 目的端原集合，將 backup 集合 rename 回原名 |
 | 審計 | `audit.py` | 抽樣來源端最多 1000 筆/集合，驗證欄位存在與型別；非阻斷式，亦嵌入 Phase 2 |
 | 刪除備份 | `delete_backup.py` | 顯示符合時間範圍的所有備份集合（`_bak_`）及筆數，確認後永久 drop |
+| 重建索引 | `rebuild_index.py` + `rebuild_index.js` | 對目的端集合執行 `ensureIndexes`（B_1_A_1、C_1、W_1、BV_1、AE_1）；已存在則略過 |
 
 ## 目錄結構
 
@@ -35,6 +36,8 @@ mongo_dr2pro/
 ├── schema_check.json                # 靜態設定（主機、DB 名、Schema），不含帳密與時間
 ├── schema_check.json.example        # 設定範本（納入版控）
 ├── delete_backup.py
+├── rebuild_index.py
+├── rebuild_index.js                 # mongosh 索引建立腳本（由 rebuild_index.py 呼叫）
 ├── generate_test_data.py            # 快速測試資料產生器
 ├── generate_test_data_pro.py        # 精準測試資料產生器（Schema 驅動）
 ├── check_data.py                    # 查詢各集合筆數與欄位型別
@@ -106,12 +109,13 @@ python runner.py
 
 ```
 === IPDR 修復流程 ===
-  正常流程：先執行 [1] 備份，再執行 [2] 搬移；[R][A][D] 為輔助功能
+  正常流程：[1] 備份 → [2] 搬移 → [I] 重建索引 → [D] 刪除備份；[R][A] 為輔助功能
   [1] 備份原始資料
   [2] 開始轉移資料
   [R] 還原備份資料
   [A] 檢查欲轉移資料格式
   [D] 刪除備份資料
+  [I] 重建索引
 
 請選擇步驟 (Q退出):
 ```
@@ -131,6 +135,7 @@ python audit.py
 
 ```bash
 python delete_backup.py
+python rebuild_index.py
 ```
 
 ## 集合命名規則
@@ -185,6 +190,44 @@ Phase 2 流程：
      4. 確認無誤後 drop 原集合，再執行 `renameCollection` 還原備份
 4. 若有任何集合被跳過，記錄 warning 並回傳失敗狀態
 
+## 重建索引機制
+
+`rebuild_index.py` 透過 `mongosh` 執行 `rebuild_index.js`，目標由搬移方向決定（DR → Central 則重建 Central；反之則重建 DR）。
+
+執行前確認畫面範例：
+
+```
+重建索引目標：172.16.17.8:27017  /  DB: PROD_DB
+
+  集合名稱                                現有索引（不含 _id）
+  ──────────────────────────────────────────────────────────────────────
+  2026072808_encColl                      B_1_A_1, C_1
+  2026072808_encColl_1                    （無）
+
+  欲建立索引（已存在者略過）：
+    B_1_A_1      { B: 1, A: 1 }
+    C_1          { C: 1 }
+    W_1          { W: 1 }
+    BV_1         { BV: 1 }
+    AE_1         { AE: 1 }
+
+  共 2 個集合
+```
+
+| 索引名稱 | 欄位 |
+|----------|------|
+| `B_1_A_1` | `{ B: 1, A: 1 }` |
+| `C_1` | `{ C: 1 }` |
+| `W_1` | `{ W: 1 }` |
+| `BV_1` | `{ BV: 1 }` |
+| `AE_1` | `{ AE: 1 }` |
+
+- **目標 DB**：由搬移方向自動決定，`dbName` 透過 `mongosh --eval` 注入 JS 腳本
+- **已存在的索引**：略過（不重建）
+- **分表**：自動處理所有分表（不受分表選擇影響）
+- **進度**：`mongosh` 輸出即時顯示於終端，並輸出 `JSON_LOG` 結構化紀錄
+- 需要本機已安裝 `mongosh`
+
 ## 審計機制
 
 `audit.py` 連線至來源端，對每個目標集合抽樣最多 1000 筆文件，逐筆套用以下規則：
@@ -207,11 +250,29 @@ python validate_scenarios.py       # 四種時間邊界情境端對端驗證
 
 ### generate_test_data_pro.py
 
+```bash
+python generate_test_data_pro.py
+```
+
 執行後依序互動：
 
 1. **選擇搬移方向**（DR→Central 或 Central→DR）
-2. **登入**（同主工具，最多三次）
-3. **輸入時間範圍**（格式 `YYYYMMDDHH`；**年份限制在 2025 以前**，超過會要求重新輸入）
+2. **登入**（DR Site 與 Central 分開輸入，各自最多三次）
+3. **輸入時間範圍**（格式 `YYYYMMDDHH`，兩端皆含；**年份限制在 2025 以前**，超過會要求重新輸入；確認後列出將建立的集合前綴）
+
+範例互動：
+
+```
+起始小時 (YYYYMMDDHH，含): 2025031008
+結束小時 (YYYYMMDDHH，含): 2025031010
+
+將處理以下 3 個小時的集合：
+  2025031008_encColl*
+  2025031009_encColl*
+  2025031010_encColl*
+
+確認範圍？(y/n): y
+```
 
 產生器根據 `data_schema` 動態產生欄位，每個小時建立一個 collection（僅含 schema 定義欄位，無額外欄位）：
 - **DR**：100 筆
@@ -253,5 +314,6 @@ python validate_scenarios.py       # 四種時間邊界情境端對端驗證
 | [R] 從備份還原 | `logs/restore_from_backup_20260728_150012.log` |
 | [A] 審計 | `logs/audit_20260728_143200.log` |
 | [D] 刪除備份 | `logs/delete_backup_20260728_160000.log` |
+| [I] 重建索引 | `logs/rebuild_index_20260728_170000.log` |
 
 日誌同時輸出至終端。計時器與日誌皆在使用者確認後才開始，不含使用者操作等待時間。
